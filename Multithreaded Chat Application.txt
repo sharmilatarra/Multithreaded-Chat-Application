@@ -1,0 +1,127 @@
+import java.io.*;
+import java.net.*;
+import java.util.*;
+
+// Main class containing both Server and Client
+public class ChatApp {
+
+    // --- Server Part ---
+    static class ChatServer {
+        private static final int PORT = 5000;
+        private static Set<ClientHandler> clients = Collections.synchronizedSet(new HashSet<>());
+
+        public static void start() {
+            System.out.println("🔌 Chat Server started on port " + PORT);
+            try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+                while (true) {
+                    Socket socket = serverSocket.accept();
+                    System.out.println("👤 Client connected: " + socket.getInetAddress());
+
+                    ClientHandler handler = new ClientHandler(socket);
+                    clients.add(handler);
+                    new Thread(handler).start();
+                }
+            } catch (IOException e) {
+                System.out.println("❌ Server error: " + e.getMessage());
+            }
+        }
+
+        static void broadcast(String msg, ClientHandler sender) {
+            synchronized (clients) {
+                for (ClientHandler client : clients) {
+                    if (client != sender) {
+                        client.send(msg);
+                    }
+                }
+            }
+        }
+
+        static void removeClient(ClientHandler client) {
+            clients.remove(client);
+        }
+
+        static class ClientHandler implements Runnable {
+            private Socket socket;
+            private BufferedReader in;
+            private PrintWriter out;
+
+            public ClientHandler(Socket socket) {
+                this.socket = socket;
+            }
+
+            public void run() {
+                try {
+                    in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                    out = new PrintWriter(socket.getOutputStream(), true);
+
+                    out.println("✅ Connected to Chat Server!");
+                    String message;
+                    while ((message = in.readLine()) != null) {
+                        System.out.println("📨 " + message);
+                        ChatServer.broadcast(message, this);
+                    }
+                } catch (IOException e) {
+                    System.out.println("⚠️ Connection error.");
+                } finally {
+                    ChatServer.removeClient(this);
+                    try { socket.close(); } catch (IOException ignored) {}
+                    System.out.println("❎ Client disconnected.");
+                }
+            }
+
+            public void send(String message) {
+                out.println(message);
+            }
+        }
+    }
+
+    // --- Client Part ---
+    static class ChatClient {
+        public static void start() {
+            try (Socket socket = new Socket("localhost", 5000)) {
+                System.out.println("✅ Connected to server.");
+
+                BufferedReader keyboardInput = new BufferedReader(new InputStreamReader(System.in));
+                BufferedReader serverInput = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                PrintWriter serverOutput = new PrintWriter(socket.getOutputStream(), true);
+
+                // Thread to read messages from server
+                Thread receiveThread = new Thread(() -> {
+                    String msg;
+                    try {
+                        while ((msg = serverInput.readLine()) != null) {
+                            System.out.println("📩 " + msg);
+                        }
+                    } catch (IOException e) {
+                        System.out.println("❌ Server connection lost.");
+                    }
+                });
+                receiveThread.start();
+
+                // Send messages to server
+                String userMsg;
+                while ((userMsg = keyboardInput.readLine()) != null) {
+                    serverOutput.println(userMsg);
+                }
+
+            } catch (IOException e) {
+                System.out.println("❌ Could not connect: " + e.getMessage());
+            }
+        }
+    }
+
+    // --- Main to choose role ---
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("Enter 'server' to start server or 'client' to start client:");
+        String choice = scanner.nextLine().trim().toLowerCase();
+
+        if (choice.equals("server")) {
+            ChatServer.start();
+        } else if (choice.equals("client")) {
+            ChatClient.start();
+        } else {
+            System.out.println("❗ Invalid choice. Please enter 'server' or 'client'.");
+        }
+    }
+}
